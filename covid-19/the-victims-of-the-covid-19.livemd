@@ -153,3 +153,62 @@ The full list of cities and the final numbers are in the following table.
 ```elixir
 Kino.DataTable.new(deaths_per_city)
 ```
+
+## Maps for each region
+
+Brazil is divided in [5 regions](https://en.wikipedia.org/wiki/Regions_of_Brazil). The following maps shows the same data, but focused in each region.
+
+```elixir
+defmodule MapHelper do
+  @features %{"N" => "GR1MU", "NE" => "GR2MU", "SE" => "GR3MU", "S" => "GR4MU", "CO" => "GR5MU"}
+  # It uses https://servicodados.ibge.gov.br/api/docs/malhas?versao=3#api-Malhas-regioesIdGet
+  def draw_region(region_code, deaths_per_city) when region_code in ~w(N NE SE S CO) do
+    Vl.new(width: 700, height: 600)
+    |> Vl.data_from_url(
+      "https://servicodados.ibge.gov.br/api/v3/malhas/regioes/#{region_code}?intrarregiao=municipio&qualidade=minima&formato=application/json",
+      format: [type: :topojson, feature: Map.fetch!(@features, region_code)]
+    )
+    |> Vl.transform(
+      lookup: "properties.codarea",
+      from: [
+        data: [values: deaths_per_city],
+        key: "id",
+        fields: ["deaths_per_100k", "city"]
+      ]
+    )
+    |> Vl.projection(type: :mercator)
+    |> Vl.mark(:geoshape)
+    |> Vl.encode_field(:color, "deaths_per_100k", type: :quantitative, title: "Deaths per 100k")
+    |> Vl.encode(:tooltip, [
+      [field: "city", type: :nominal, title: "City"],
+      [field: "deaths_per_100k", type: :quantitative, title: "Rate"]
+    ])
+    |> Vl.config(view: [stroke: nil])
+  end
+end
+```
+
+```elixir
+# North
+MapHelper.draw_region("N", deaths_per_city)
+```
+
+```elixir
+# Northeast
+MapHelper.draw_region("NE", deaths_per_city)
+```
+
+```elixir
+# Southeast
+MapHelper.draw_region("SE", deaths_per_city)
+```
+
+```elixir
+# South
+MapHelper.draw_region("S", deaths_per_city)
+```
+
+```elixir
+# Central-West
+MapHelper.draw_region("CO", deaths_per_city)
+```
