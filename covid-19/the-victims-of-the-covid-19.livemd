@@ -30,6 +30,7 @@ today =
   |> DateTime.add(-3 * 60 * 60, :second)
   |> DateTime.to_date()
 
+File.mkdir_p("covid-19")
 filename = "covid-19/covid_full-#{today}.csv"
 
 # Only downloads the file if it doesn't exist yet.
