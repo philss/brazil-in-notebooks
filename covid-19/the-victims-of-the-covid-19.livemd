@@ -1,0 +1,215 @@
+# The victims of the COVID-19
+
+## Intro
+
+This notebook is based on the work of [Judite Cypreste](https://github.com/juditecypreste)
+and is originally available at [https://github.com/juditecypreste/as-vitimas-do-coronavirus](https://github.com/juditecypreste/as-vitimas-do-coronavirus) (in Portuguese).
+
+## Dependencies
+
+We need [Req](https://github.com/wojtek/req) in order to download the CSV files
+and [Explorer](https://github.com/elixir-nx/explorer) that will be handy to transform it to a dataset.
+Finally VegaLite helps to render Brazilian cities provided by [IBGE](https://www.ibge.gov.br/en/home-eng.html) and Kino renders the table at the end.
+
+```elixir
+Mix.install([
+  :req,
+  {:explorer, "~> 0.1.0-dev", github: "elixir-nx/explorer", branch: "main"},
+  {:vega_lite, "~> 0.1.2"},
+  {:kino, "~> 0.4.1"}
+])
+```
+
+## Initial dataframe
+
+```elixir
+# Get the Brazilian date by shifting -3 hours from UTC. It's not precise, but works for us.
+# This is because this file changes every day, so we want to get the latest version.
+today =
+  DateTime.utc_now()
+  |> DateTime.add(-3 * 60 * 60, :second)
+  |> DateTime.to_date()
+
+File.mkdir_p("covid-19")
+filename = "covid-19/covid_full-#{today}.csv"
+
+# Only downloads the file if it doesn't exist yet.
+unless File.exists?(filename) do
+  # This file contains all data related to cases in all cities from the country
+  csv = Req.get!("https://data.brasil.io/dataset/covid19/caso_full.csv.gz").body
+
+  # Req gives us an umcompressed file :)
+  File.write!(filename, csv)
+end
+```
+
+Now we need to build the dataframe based on the CSV file that was downloaded.
+
+```elixir
+alias Explorer.DataFrame
+alias Explorer.Series
+
+df =
+  DataFrame.read_csv!(filename,
+    dtypes: [{"city_ibge_code", :string}, {"last_available_deaths", :integer}]
+  )
+```
+
+## Filters
+
+The CSV have cumulative data, so we need to select the last rows for each city.
+Additionally we need to select only a few columns and drop the ones that have nil values.
+
+```elixir
+is_last_filter = Series.equal(df["is_last"], true)
+is_city_filter = Series.equal(df["place_type"], "city")
+
+filters = Series.and(is_last_filter, is_city_filter)
+
+important_columns = [
+  "city",
+  "city_ibge_code",
+  "date",
+  "last_available_deaths",
+  "estimated_population",
+  "state"
+]
+
+df =
+  df
+  |> DataFrame.filter(filters)
+  |> DataFrame.select(important_columns)
+  |> DataFrame.drop_nil()
+```
+
+## Analyzing the dataframe
+
+```elixir
+# We group and sum the deaths count. After that we sort by deaths count, descending.
+df =
+  df
+  |> DataFrame.group_by(["city", "city_ibge_code", "date", "state"])
+  |> DataFrame.summarise(last_available_deaths: [:sum], estimated_population: [:first])
+  |> DataFrame.arrange(desc: "last_available_deaths_sum")
+```
+
+## Building the map
+
+Originally the study was showing cities that had at least one death. Unfortunatelly almost all cities had deaths registered since the beginning of the pandemic.
+So I decided to show the deaths per 100k rate in this study.
+
+```elixir
+name = df |> DataFrame.pull("city") |> Series.to_list()
+cities = df |> DataFrame.pull("city_ibge_code") |> Series.to_list()
+deaths = df |> DataFrame.pull("last_available_deaths_sum") |> Series.to_list()
+est_population = df |> DataFrame.pull("estimated_population_first") |> Series.to_list()
+
+deaths_per_city =
+  for {city_code, name, total_deaths, population} <-
+        Enum.zip([cities, name, deaths, est_population]) do
+    deaths_per_100k = total_deaths * 100_000 / population
+
+    %{
+      "id" => city_code,
+      "city" => name,
+      "deaths" => total_deaths,
+      "deaths_per_100k" => deaths_per_100k
+    }
+  end
+```
+
+And finally the map is built with [VegaLite](https://hexdocs.pm/vega_lite/VegaLite.html).
+
+We are fetching the [TopoJSON](https://github.com/topojson/topojson) data from this awesome service from IBGE:
+[API de malhas geográficas V3](https://servicodados.ibge.gov.br/api/docs/malhas?versao=3).
+
+```elixir
+alias VegaLite, as: Vl
+
+Vl.new(width: 700, height: 600)
+|> Vl.data_from_url(
+  "https://servicodados.ibge.gov.br/api/v3/malhas/paises/BR?intrarregiao=municipio&qualidade=minima&formato=application/json",
+  format: [type: :topojson, feature: "BRMU"]
+)
+|> Vl.transform(
+  lookup: "properties.codarea",
+  from: [
+    data: [values: deaths_per_city],
+    key: "id",
+    fields: ["deaths_per_100k", "city"]
+  ]
+)
+|> Vl.projection(type: :mercator)
+|> Vl.mark(:geoshape)
+|> Vl.encode_field(:color, "deaths_per_100k", type: :quantitative, title: "Deaths per 100k")
+|> Vl.encode(:tooltip, [
+  [field: "city", type: :nominal, title: "City"],
+  [field: "deaths_per_100k", type: :quantitative, title: "Rate"]
+])
+|> Vl.config(view: [stroke: nil])
+```
+
+The full list of cities and the final numbers are in the following table.
+
+```elixir
+Kino.DataTable.new(deaths_per_city)
+```
+
+## Maps for each region
+
+Brazil is divided in [5 regions](https://en.wikipedia.org/wiki/Regions_of_Brazil). The following maps shows the same data, but focused in each region.
+
+```elixir
+defmodule MapHelper do
+  @features %{"N" => "GR1MU", "NE" => "GR2MU", "SE" => "GR3MU", "S" => "GR4MU", "CO" => "GR5MU"}
+  # It uses https://servicodados.ibge.gov.br/api/docs/malhas?versao=3#api-Malhas-regioesIdGet
+  def draw_region(region_code, deaths_per_city) when region_code in ~w(N NE SE S CO) do
+    Vl.new(width: 700, height: 600)
+    |> Vl.data_from_url(
+      "https://servicodados.ibge.gov.br/api/v3/malhas/regioes/#{region_code}?intrarregiao=municipio&qualidade=minima&formato=application/json",
+      format: [type: :topojson, feature: Map.fetch!(@features, region_code)]
+    )
+    |> Vl.transform(
+      lookup: "properties.codarea",
+      from: [
+        data: [values: deaths_per_city],
+        key: "id",
+        fields: ["deaths_per_100k", "city"]
+      ]
+    )
+    |> Vl.projection(type: :mercator)
+    |> Vl.mark(:geoshape)
+    |> Vl.encode_field(:color, "deaths_per_100k", type: :quantitative, title: "Deaths per 100k")
+    |> Vl.encode(:tooltip, [
+      [field: "city", type: :nominal, title: "City"],
+      [field: "deaths_per_100k", type: :quantitative, title: "Rate"]
+    ])
+    |> Vl.config(view: [stroke: nil])
+  end
+end
+```
+
+```elixir
+# North
+MapHelper.draw_region("N", deaths_per_city)
+```
+
+```elixir
+# Northeast
+MapHelper.draw_region("NE", deaths_per_city)
+```
+
+```elixir
+# Southeast
+MapHelper.draw_region("SE", deaths_per_city)
+```
+
+```elixir
+# South
+MapHelper.draw_region("S", deaths_per_city)
+```
+
+```elixir
+# Central-West
+MapHelper.draw_region("CO", deaths_per_city)
+```
