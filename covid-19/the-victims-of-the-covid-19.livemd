@@ -1,5 +1,14 @@
 # The victims of the COVID-19
 
+```elixir
+Mix.install([
+  {:req, "~> 0.3.0"},
+  {:explorer, "~> 0.2"},
+  {:kino, "~> 0.6.0"},
+  {:kino_vega_lite, "~> 0.1.2"}
+])
+```
+
 ## Intro
 
 This notebook is based on the work of [Judite Cypreste](https://github.com/juditecypreste)
@@ -10,15 +19,6 @@ and is originally available at [https://github.com/juditecypreste/as-vitimas-do-
 We need [Req](https://github.com/wojtek/req) in order to download the CSV files
 and [Explorer](https://github.com/elixir-nx/explorer) that will be handy to transform it to a dataset.
 Finally VegaLite helps to render Brazilian cities provided by [IBGE](https://www.ibge.gov.br/en/home-eng.html) and Kino renders the table at the end.
-
-```elixir
-Mix.install([
-  :req,
-  {:explorer, "~> 0.1.1"},
-  {:vega_lite, "~> 0.1.3"},
-  {:kino, "~> 0.5.0"}
-])
-```
 
 ## Initial dataframe
 
@@ -50,7 +50,7 @@ alias Explorer.DataFrame
 alias Explorer.Series
 
 df =
-  DataFrame.read_csv!(filename,
+  DataFrame.from_csv!(filename,
     dtypes: [{"city_ibge_code", :string}, {"last_available_deaths", :integer}]
   )
 ```
@@ -85,12 +85,12 @@ df =
 ## Analyzing the dataframe
 
 ```elixir
-# We group and sum the deaths count. After that we sort by deaths count, descending.
+# Since the lines are the last one for each city, we only arrange by the last available deaths.
+
 df =
   df
-  |> DataFrame.group_by(["city", "city_ibge_code", "date", "state"])
-  |> DataFrame.summarise(last_available_deaths: [:sum], estimated_population: [:first])
-  |> DataFrame.arrange(desc: "last_available_deaths_sum")
+  |> DataFrame.distinct(columns: ["city_ibge_code"], keep_all?: true)
+  |> DataFrame.arrange(desc: "last_available_deaths")
 ```
 
 ## Building the map
@@ -99,23 +99,20 @@ Originally the study was showing cities that had at least one death. Unfortunate
 So I decided to show the deaths per 100k rate in this study.
 
 ```elixir
-name = df |> DataFrame.pull("city") |> Series.to_list()
-cities = df |> DataFrame.pull("city_ibge_code") |> Series.to_list()
-deaths = df |> DataFrame.pull("last_available_deaths_sum") |> Series.to_list()
-est_population = df |> DataFrame.pull("estimated_population_first") |> Series.to_list()
+# First we rename some columns, and then we calculate the rate.
+df =
+  df
+  |> DataFrame.rename(%{"city_ibge_code" => "id", "last_available_deaths" => "deaths"})
+  |> DataFrame.select([:date], :drop)
+  |> DataFrame.mutate(
+    deaths_per_100k: fn df ->
+      Series.multiply(df["deaths"], 100_000) |> Series.divide(df["estimated_population"])
+    end
+  )
+```
 
-deaths_per_city =
-  for {city_code, name, total_deaths, population} <-
-        Enum.zip([cities, name, deaths, est_population]) do
-    deaths_per_100k = total_deaths * 100_000 / population
-
-    %{
-      "id" => city_code,
-      "city" => name,
-      "deaths" => total_deaths,
-      "deaths_per_100k" => deaths_per_100k
-    }
-  end
+```elixir
+deaths_per_city = DataFrame.to_rows(df)
 ```
 
 And finally the map is built with [VegaLite](https://hexdocs.pm/vega_lite/VegaLite.html).
