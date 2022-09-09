@@ -3,7 +3,7 @@
 ```elixir
 Mix.install([
   {:req, "~> 0.3.0"},
-  {:explorer, "~> 0.3"},
+  {:explorer, "~> 0.3.1"},
   {:kino, "~> 0.6.0"},
   {:kino_vega_lite, "~> 0.1.3"}
 ])
@@ -98,11 +98,12 @@ df =
   df
   |> DataFrame.rename(%{"city_ibge_code" => "id", "last_available_deaths" => "deaths"})
   |> DataFrame.select([:date], :drop)
-  |> DataFrame.mutate(
-    deaths_per_100k: fn df ->
-      Series.multiply(df["deaths"], 100_000) |> Series.divide(df["estimated_population"])
-    end
-  )
+  |> DataFrame.mutate_with(fn df ->
+    [
+      deaths_per_100k:
+        Series.multiply(df["deaths"], 100_000) |> Series.divide(df["estimated_population"])
+    ]
+  end)
 ```
 
 ```elixir
