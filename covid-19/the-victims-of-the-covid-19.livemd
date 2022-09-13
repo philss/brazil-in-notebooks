@@ -23,15 +23,8 @@ Finally VegaLite helps to render Brazilian cities provided by [IBGE](https://www
 ## Initial dataframe
 
 ```elixir
-# Get the Brazilian date by shifting -3 hours from UTC. It's not precise, but works for us.
-# This is because this file changes every day, so we want to get the latest version.
-today =
-  DateTime.utc_now()
-  |> DateTime.add(-3 * 60 * 60, :second)
-  |> DateTime.to_date()
-
 File.mkdir_p("covid-19")
-filename = "covid-19/covid_full-#{today}.csv"
+filename = "covid-19/covid_full.csv"
 
 # Only downloads the file if it doesn't exist yet.
 unless File.exists?(filename) do
