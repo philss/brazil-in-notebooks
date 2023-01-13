@@ -2,10 +2,9 @@
 
 ```elixir
 Mix.install([
-  {:req, "~> 0.3.1"},
-  {:explorer, "~> 0.4"},
-  {:kino, "~> 0.7.0"},
-  {:kino_vega_lite, "~> 0.1.4"}
+  {:req, "~> 0.3"},
+  {:explorer, "~> 0.5.0"},
+  {:kino_vega_lite, "~> 0.1"}
 ])
 ```
 
@@ -44,7 +43,7 @@ alias Explorer.Series
 
 df =
   DF.from_csv!(filename,
-    dtypes: [{"city_ibge_code", :string}, {"last_available_deaths", :integer}]
+    dtypes: [{"city_ibge_code", :category}, {"last_available_deaths", :integer}]
   )
 ```
 
