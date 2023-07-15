@@ -3,7 +3,7 @@
 ```elixir
 Mix.install([
   {:req, "~> 0.3"},
-  {:explorer, "~> 0.5.0"},
+  {:explorer, "~> 0.6.0"},
   {:kino_vega_lite, "~> 0.1"}
 ])
 ```
@@ -41,8 +41,20 @@ Now we need to build the dataframe based on the CSV file that was downloaded.
 require Explorer.DataFrame, as: DF
 alias Explorer.Series
 
+important_columns = [
+  "city",
+  "city_ibge_code",
+  "date",
+  "last_available_deaths",
+  "estimated_population",
+  "is_last",
+  "place_type",
+  "state"
+]
+
 df =
   DF.from_csv!(filename,
+    columns: important_columns,
     dtypes: [{"city_ibge_code", :category}, {"last_available_deaths", :integer}]
   )
 ```
@@ -53,19 +65,10 @@ The CSV have cumulative data, so we need to select the last rows for each city.
 Additionally we need to select only a few columns and drop the ones that have nil values.
 
 ```elixir
-important_columns = [
-  "city",
-  "city_ibge_code",
-  "date",
-  "last_available_deaths",
-  "estimated_population",
-  "state"
-]
-
 df =
   df
   |> DF.filter(is_last == true and place_type == "city")
-  |> DF.select(important_columns)
+  |> DF.discard(["is_last", "place_type"])
   |> DF.drop_nil()
 ```
 
