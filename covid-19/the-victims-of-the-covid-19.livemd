@@ -2,8 +2,8 @@
 
 ```elixir
 Mix.install([
-  {:req, "~> 0.4"},
-  {:explorer, "~> 0.8"},
+  {:req, "~> 0.5"},
+  {:explorer, "~> 0.11"},
   {:kino_vega_lite, "~> 0.1"}
 ])
 ```
